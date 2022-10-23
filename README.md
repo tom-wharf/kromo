@@ -13,39 +13,12 @@
 ## Quick Start
 ```
 $ pip3 install -r requirements.txt
-$ python3 kromo.py -v flower.jpg 
-
-Original Image: JPEG (1962, 2615) RGB
-Dimensions must be odd numbers, cropping...
-New Dimensions: (1961, 2615)
-Completed in:  43.85s
 
 ```
 
-## Usage
-```
-$ python3 kromo.py --help
+## Command line usage update
+Unlike the original project, this fork does not support command line usage, it is to be used as a library, a lot of the code from command usage part relies heavily on pillow, this project avoids using that library. Though you can clone and add it yourself, with the original repo. 
 
-usage: kromo.py [-h] [-s STRENGTH] [-j JITTER] [-y OVERLAY] [-n] [-o OUT] [-v]
-                filename
-
-Apply chromatic aberration and lens blur to images
-
-positional arguments:
-  filename              input filename
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -s STRENGTH, --strength STRENGTH
-                        set blur/aberration strength, defaults to 1.0
-  -j JITTER, --jitter JITTER
-                        set color channel offset pixels, defaults to 0
-  -y OVERLAY, --overlay OVERLAY
-                        alpha of original image overlay, defaults to 0.0
-  -n, --noblur          disable radial blur
-  -o OUT, --out OUT     write to OUTPUT (supports multiple formats)
-  -v, --verbose         print status messages
-```
 
 ## Runtime
 `kromo` is slow, just like how film photography used to be. Clone the repo for a blast from the past.
