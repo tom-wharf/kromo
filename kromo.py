@@ -6,13 +6,13 @@ park.yoonsik@icloud.com
 Use the command line interface to add chromatic abberation and
 lens blur to your images, or import some of the functions below.
 """
-
-from PIL import Image
-import numpy as np
-import math
 import time
 from typing import List
-import os
+import numpy as np
+import cv2
+import math
+import imghdr
+
 
 
 def cartesian_to_polar(data: np.ndarray) -> np.ndarray:
@@ -202,28 +202,21 @@ def vertical_gaussian(data: np.ndarray, n: int) -> np.ndarray:
     return ret
 
 
-def add_chromatic(im, strength: float = 1, no_blur: bool = False):
-    """Splits <im> into red, green, and blue channels, then performs a
-    1D Vertical Gaussian blur through a polar representation. Finally,
-    it expands the green and blue channels slightly.
+def add_chromatic(im: np.ndarray, strength: float = 1, no_blur: bool = False) -> np.ndarray:
+    
+    # split into r, g, b channels
+    rdata, gdata, bdata = im[:, :, 0], im[:, :, 1], im[:, :, 2]
 
-    <strength> determines the amount of expansion and blurring.
-    <no_blur> disables the radial blur
-    """
-    r, g, b = im.split()
-    rdata = np.asarray(r)
-    gdata = np.asarray(g)
-    bdata = np.asarray(b)
+    # if no blur, then good to go
     if no_blur:
         # channels remain unchanged
-        rfinal = r
-        gfinal = g
-        bfinal = b
+        rfinal = rdata
+        gfinal = gdata
+        bfinal = bdata
     else:
-        poles = cartesian_to_polar(np.stack([rdata, gdata, bdata], axis=-1))
-        rpolar, gpolar, bpolar = poles[:, :, 0], poles[:, :, 1], poles[:, :, 2],
-
-        bluramount = (im.size[0] + im.size[1] - 2) / 100 * strength
+        poles = cartesian_to_polar( np.stack([rdata, gdata, bdata], axis=-1) )
+        rpolar, gpolar, bpolar = poles[:, :, 0], poles[:, :, 1], poles[:, :, 2]
+        bluramount = (im.shape[0] + im.shape[1] - 2) / 100 * strength
         if round(bluramount) > 0:
             rpolar = vertical_gaussian(rpolar, round(bluramount))
             gpolar = vertical_gaussian(gpolar, round(bluramount * 1.2))
@@ -231,135 +224,56 @@ def add_chromatic(im, strength: float = 1, no_blur: bool = False):
 
         rgbpolar = np.stack([rpolar, gpolar, bpolar], axis=-1)
         cartes = polar_to_cartesian(rgbpolar, width=rdata.shape[1], height=rdata.shape[0])
-        rcartes, gcartes, bcartes = cartes[:, :, 0], cartes[:, :, 1], cartes[:, :, 2],
-
-        rfinal = Image.fromarray(np.uint8(rcartes), 'L')
-        gfinal = Image.fromarray(np.uint8(gcartes), 'L')
-        bfinal = Image.fromarray(np.uint8(bcartes), 'L')
+        rcartes, gcartes, bcartes = cartes[:, :, 0], cartes[:, :, 1], cartes[:, :, 2]
+        
+        rfinal = rcartes
+        gfinal = gcartes
+        bfinal = bcartes
 
     # enlarge the green and blue channels slightly, blue being the most enlarged
-    gfinal = gfinal.resize((round((1 + 0.018 * strength) * rdata.shape[1]),
-                            round((1 + 0.018 * strength) * rdata.shape[0])), Image.ANTIALIAS)
-    bfinal = bfinal.resize((round((1 + 0.044 * strength) * rdata.shape[1]),
-                            round((1 + 0.044 * strength) * rdata.shape[0])), Image.ANTIALIAS)
+    
+    gfinal = cv2.resize(gfinal, dsize=(
+                                round((1 + 0.018 * strength) * rdata.shape[1]),
+                                round((1 + 0.018 * strength) * rdata.shape[0])
+                            ), interpolation=cv2.INTER_CUBIC)
+                                
+    bfinal = cv2.resize(bfinal, dsize= (
+                                round((1 + 0.044 * strength) * rdata.shape[1]),
+                                round((1 + 0.044 * strength) * rdata.shape[0])
+                            ), interpolation=cv2.INTER_CUBIC)
 
-    rwidth, rheight = rfinal.size
-    gwidth, gheight = gfinal.size
-    bwidth, bheight = bfinal.size
+    
+    rheight, rwidth = rfinal.shape
+    gheight, gwidth = gfinal.shape
+    bheight, bwidth = bfinal.shape
     rhdiff = (bheight - rheight) // 2
     rwdiff = (bwidth - rwidth) // 2
     ghdiff = (bheight - gheight) // 2
     gwdiff = (bwidth - gwidth) // 2
 
-    # Centre the channels
-    im = Image.merge("RGB", (
-        rfinal.crop((-rwdiff, -rhdiff, bwidth - rwdiff, bheight - rhdiff)),
-        gfinal.crop((-gwdiff, -ghdiff, bwidth - gwdiff, bheight - ghdiff)),
-        bfinal))
-
-    # Crop the image to the original image dimensions
-    return im.crop((rwdiff, rhdiff, rwidth + rwdiff, rheight + rhdiff))
 
 
-def add_jitter(im, pixels: int = 1):
-    """Adds a small pixel offset to the Red and Blue channels of <im>,
-    resulting in a classic chromatic fringe effect. Very cheap computationally.
+    r_temp = np.zeros((bheight, bwidth))
+    g_temp = np.zeros((bheight, bwidth))
+    
+    r_temp[
+            rhdiff:rhdiff+rheight,
+            rwdiff:rwdiff+rwidth
+        ] = rfinal
+    
+    g_temp[
+            ghdiff:ghdiff+gheight,
+            gwdiff:gwdiff+gwidth
+        ] = gfinal
+    
+    rfinal = r_temp
+    gfinal = g_temp
 
-    <pixels> how many pixels to offset the Red and Blue channels
-    """
-    if pixels == 0:
-        return im.copy()
-    r, g, b = im.split()
-    rwidth, rheight = r.size
-    gwidth, gheight = g.size
-    bwidth, bheight = b.size
-    im = Image.merge("RGB", (
-        r.crop((pixels, 0, rwidth + pixels, rheight)),
-        g.crop((0, 0, gwidth, gheight)),
-        b.crop((-pixels, 0, bwidth - pixels, bheight))))
+    
+    im = np.stack([rfinal, gfinal, bfinal], axis=-1)[
+        rhdiff:rhdiff+rheight,
+        rwdiff:rwdiff+rwidth,
+        :
+    ]
+
     return im
-
-
-def blend_images(im, og_im, alpha: float = 1, strength: float = 1):
-    """Blends original image <og_im> as an overlay over <im>, with
-    an alpha value of <alpha>. Resizes <og_im> with respect to <strength>,
-    before adding it as an overlay. 
-    """
-    og_im.putalpha(int(255 * alpha))
-    og_im = og_im.resize((round((1 + 0.018 * strength) * og_im.size[0]),
-                          round((1 + 0.018 * strength) * og_im.size[1])), Image.ANTIALIAS)
-
-    hdiff = (og_im.size[1] - im.size[1]) // 2
-    wdiff = (og_im.size[0] - im.size[0]) // 2
-    og_im = og_im.crop((wdiff, hdiff, wdiff + im.size[0], hdiff + im.size[1]))
-    im = im.convert('RGBA')
-
-    final_im = Image.new("RGBA", im.size)
-    final_im = Image.alpha_composite(final_im, im)
-    final_im = Image.alpha_composite(final_im, og_im)
-    final_im = final_im.convert('RGB')
-    return final_im
-
-
-if __name__ == '__main__':
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Apply chromatic aberration and lens blur to images")
-    parser.add_argument("filename", help="input filename")
-    parser.add_argument("-s", "--strength", type=float, default=1.0,
-                        help="set blur/aberration strength, defaults to 1.0")
-    parser.add_argument("-j", "--jitter", type=int, default=0,
-                        help="set color channel offset pixels, defaults to 0")
-    parser.add_argument("-y", "--overlay", type=float, default=0.0,
-                        help="alpha of original image overlay, defaults to 0.0")
-    parser.add_argument(
-        "-n", "--noblur", help="disable radial blur", action="store_true")
-    parser.add_argument(
-        "-o", "--out", help="write to OUTPUT (supports multiple formats)")
-    parser.add_argument(
-        '-v', '--verbose', help="print status messages", action="store_true")
-    args = parser.parse_args()
-    # Get Start Time
-    start = time.time()
-    ifile = args.filename
-    im = Image.open(ifile)
-    if (args.verbose):
-        print("Original Image:", im.format, im.size, im.mode)
-
-    if (im.mode != 'RGB'):
-        if (args.verbose):
-            print("Converting to RGB...")
-        im = im.convert('RGB')
-
-    # Ensure width and height are odd numbers
-    if (im.size[0] % 2 == 0 or im.size[1] % 2 == 0):
-        if (args.verbose):
-            print("Dimensions must be odd numbers, cropping...")
-        if (im.size[0] % 2 == 0):
-            im = im.crop((0, 0, im.size[0] - 1, im.size[1]))
-            im.load()
-        if (im.size[1] % 2 == 0):
-            im = im.crop((0, 0, im.size[0], im.size[1] - 1))
-            im.load()
-        if (args.verbose):
-            print("New Dimensions:", im.size)
-
-    og_im = im.copy()
-
-    im = add_chromatic(im, strength=args.strength, no_blur=args.noblur)
-
-    # Add Jitter Effect
-    im = add_jitter(im, pixels=args.jitter)
-
-    im = blend_images(im, og_im, alpha=args.overlay, strength=args.strength)
-
-    # Save Final Image
-    if args.out == None:
-        im.save(os.path.splitext(ifile)[0] + "_chromatic.jpg", quality=99)
-    else:
-        im.save(args.out, quality=99)
-    # Get Finish Time
-    end = time.time()
-    if (args.verbose):
-        print("Completed in: " + '% 6.2f' % (end - start) + "s")
